@@ -6,22 +6,25 @@ app = Flask(__name__)
 DB_FILE = "reservas.db"
 
 # Crear tabla si no existe
-conn = sqlite3.connect(DB_FILE)
-c = conn.cursor()
-c.execute('''
-CREATE TABLE IF NOT EXISTS reservas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pc TEXT NOT NULL,
-    usuario TEXT NOT NULL,
-    fecha TEXT NOT NULL,
-    hora_inicio TEXT NOT NULL,
-    hora_fin TEXT NOT NULL
-)
-''')
-conn.commit()
-conn.close()
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS reservas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pc TEXT NOT NULL,
+        usuario TEXT NOT NULL,
+        fecha TEXT NOT NULL,
+        hora_inicio TEXT NOT NULL,
+        hora_fin TEXT NOT NULL
+    )
+    ''')
+    conn.commit()
+    conn.close()
 
-# HTML más visual
+init_db()
+
+# HTML de la app
 HTML = '''
 <!DOCTYPE html>
 <html lang="es">
@@ -70,7 +73,7 @@ th { background: #eee; }
 <table>
 <tr><th>PC</th><th>Usuario</th><th>Fecha</th><th>Hora inicio</th><th>Hora fin</th></tr>
 {% for r in reservas %}
-<tr class="{{ 'ocupado' if r[3]==hoy else 'libre' }}">
+<tr class="{% if r[3]==hoy %}ocupado{% else %}libre{% endif %}">
     <td>{{ r[1] }}</td>
     <td>{{ r[2] }}</td>
     <td>{{ r[3] }}</td>
@@ -84,7 +87,7 @@ th { background: #eee; }
 </html>
 '''
 
-# Generar horas en intervalos de 30 min
+# Generar horas en intervalos de 30 minutos
 def generar_horas():
     horas = []
     start = datetime.strptime("08:00", "%H:%M")
@@ -108,11 +111,14 @@ def hay_conflicto(pc, fecha, hora_inicio, hora_fin):
 def index():
     hoy = datetime.now().strftime("%Y-%m-%d")
     if request.method == "POST":
-        usuario = request.form["usuario"]
-        pc = request.form["pc"]
-        fecha = request.form["fecha"]
-        hora_inicio = request.form["hora_inicio"]
-        hora_fin = request.form["hora_fin"]
+        usuario = request.form.get("usuario")
+        pc = request.form.get("pc")
+        fecha = request.form.get("fecha")
+        hora_inicio = request.form.get("hora_inicio")
+        hora_fin = request.form.get("hora_fin")
+
+        if not usuario or not pc or not fecha or not hora_inicio or not hora_fin:
+            return "<h2>Error: Todos los campos son obligatorios.</h2><a href='/'>Volver</a>"
 
         if hay_conflicto(pc, fecha, hora_inicio, hora_fin):
             return "<h2>Error: El PC ya está reservado en ese horario.</h2><a href='/'>Volver</a>"
@@ -125,7 +131,7 @@ def index():
         conn.close()
         return redirect("/")
 
-    # GET
+    # GET: mostrar reservas
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute('SELECT * FROM reservas ORDER BY fecha, hora_inicio')
@@ -134,4 +140,5 @@ def index():
     return render_template_string(HTML, reservas=reservas, hoy=hoy, horas=generar_horas())
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=True)
+
