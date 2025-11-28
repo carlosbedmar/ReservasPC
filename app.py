@@ -1,12 +1,11 @@
 from flask import Flask, render_template_string, request, redirect
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
-
 DB_FILE = "reservas.db"
 
-# Crear la tabla si no existe
+# Crear tabla si no existe
 conn = sqlite3.connect(DB_FILE)
 c = conn.cursor()
 c.execute('''
@@ -22,7 +21,7 @@ CREATE TABLE IF NOT EXISTS reservas (
 conn.commit()
 conn.close()
 
-# HTML de la app
+# HTML más visual
 HTML = '''
 <!DOCTYPE html>
 <html lang="es">
@@ -30,59 +29,71 @@ HTML = '''
 <meta charset="UTF-8">
 <title>Reservas PC</title>
 <style>
-body { font-family: Arial; background: #f7f7f7; padding: 20px; }
-h1 { color: #333; }
-input, select { padding: 5px; margin: 5px; }
-table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-th { background: #eee; }
-button { padding: 8px 12px; margin-top: 10px; background: #4CAF50; color: white; border: none; cursor: pointer; }
+body { font-family: Arial; background: #f0f2f5; padding: 20px; }
+h1 { color: #333; text-align: center; }
+.container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);}
+form { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-bottom: 20px; }
+input, select, button { padding: 8px; border-radius: 5px; border: 1px solid #ccc; }
+button { background: #4CAF50; color: white; border: none; cursor: pointer; }
 button:hover { background: #45a049; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 8px; text-align: center; border: 1px solid #ddd; }
+th { background: #eee; }
+.libre { background-color: #c8e6c9; } /* verde */
+.ocupado { background-color: #ffcdd2; } /* rojo */
 </style>
 </head>
 <body>
 <h1>Reservas de PCs</h1>
+<div class="container">
 <form method="POST">
-    <label>Nombre:</label>
-    <input type="text" name="usuario" required>
-    <label>PC:</label>
+    <input type="text" name="usuario" placeholder="Tu nombre" required>
     <select name="pc">
         <option value="Jabalí">Jabalí</option>
         <option value="Lince">Lince</option>
     </select>
-    <label>Fecha:</label>
     <input type="date" name="fecha" value="{{ hoy }}" required>
-    <label>Hora inicio:</label>
-    <input type="time" name="hora_inicio" required>
-    <label>Hora fin:</label>
-    <input type="time" name="hora_fin" required>
+    <select name="hora_inicio">
+        {% for h in horas %}
+        <option value="{{ h }}">{{ h }}</option>
+        {% endfor %}
+    </select>
+    <select name="hora_fin">
+        {% for h in horas %}
+        <option value="{{ h }}">{{ h }}</option>
+        {% endfor %}
+    </select>
     <button type="submit">Reservar</button>
 </form>
 
-<h2>Reservas Activas</h2>
+<h2>Estado de PCs</h2>
 <table>
-    <tr>
-        <th>PC</th>
-        <th>Usuario</th>
-        <th>Fecha</th>
-        <th>Hora inicio</th>
-        <th>Hora fin</th>
-    </tr>
-    {% for r in reservas %}
-    <tr>
-        <td>{{ r[1] }}</td>
-        <td>{{ r[2] }}</td>
-        <td>{{ r[3] }}</td>
-        <td>{{ r[4] }}</td>
-        <td>{{ r[5] }}</td>
-    </tr>
-    {% endfor %}
+<tr><th>PC</th><th>Usuario</th><th>Fecha</th><th>Hora inicio</th><th>Hora fin</th></tr>
+{% for r in reservas %}
+<tr class="{{ 'ocupado' if r[3]==hoy else 'libre' }}">
+    <td>{{ r[1] }}</td>
+    <td>{{ r[2] }}</td>
+    <td>{{ r[3] }}</td>
+    <td>{{ r[4] }}</td>
+    <td>{{ r[5] }}</td>
+</tr>
+{% endfor %}
 </table>
+</div>
 </body>
 </html>
 '''
 
-# Función para comprobar conflictos
+# Generar horas en intervalos de 30 min
+def generar_horas():
+    horas = []
+    start = datetime.strptime("08:00", "%H:%M")
+    end = datetime.strptime("20:00", "%H:%M")
+    while start <= end:
+        horas.append(start.strftime("%H:%M"))
+        start += timedelta(minutes=30)
+    return horas
+
 def hay_conflicto(pc, fecha, hora_inicio, hora_fin):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -93,8 +104,9 @@ def hay_conflicto(pc, fecha, hora_inicio, hora_fin):
     conn.close()
     return conflicto is not None
 
-@app.route("/", methods=["GET", "POST"])
+@app.route("/", methods=["GET","POST"])
 def index():
+    hoy = datetime.now().strftime("%Y-%m-%d")
     if request.method == "POST":
         usuario = request.form["usuario"]
         pc = request.form["pc"]
@@ -102,7 +114,6 @@ def index():
         hora_inicio = request.form["hora_inicio"]
         hora_fin = request.form["hora_fin"]
 
-        # Validar conflictos
         if hay_conflicto(pc, fecha, hora_inicio, hora_fin):
             return "<h2>Error: El PC ya está reservado en ese horario.</h2><a href='/'>Volver</a>"
 
@@ -114,14 +125,13 @@ def index():
         conn.close()
         return redirect("/")
 
-    # GET: mostrar reservas
+    # GET
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute('SELECT * FROM reservas ORDER BY fecha, hora_inicio')
     reservas = c.fetchall()
     conn.close()
-    hoy = datetime.now().strftime("%Y-%m-%d")
-    return render_template_string(HTML, reservas=reservas, hoy=hoy)
+    return render_template_string(HTML, reservas=reservas, hoy=hoy, horas=generar_horas())
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
