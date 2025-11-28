@@ -9,17 +9,20 @@ DB_FILE = "reservas.db"
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute('''
-    CREATE TABLE IF NOT EXISTS reservas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        pc TEXT NOT NULL,
-        usuario TEXT NOT NULL,
-        fecha TEXT NOT NULL,
-        hora_inicio TEXT NOT NULL,
-        hora_fin TEXT NOT NULL
-    )
-    ''')
-    conn.commit()
+
+# Crear tabla reservas si no existe
+c.execute('''
+CREATE TABLE IF NOT EXISTS reservas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pc TEXT NOT NULL,
+    usuario TEXT NOT NULL,
+    fecha TEXT NOT NULL,
+    hora_inicio TEXT NOT NULL,
+    hora_fin TEXT NOT NULL
+)
+''')
+
+conn.commit()
     conn.close()
 
 init_db()
