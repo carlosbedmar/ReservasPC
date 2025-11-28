@@ -1,217 +1,127 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, render_template_string, request, redirect
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 
 app = Flask(__name__)
-DB = "reservas.db"
 
-# ---------------- HTML VISUAL -------------------
-HTML = """
+DB_FILE = "reservas.db"
+
+# Crear la tabla si no existe
+conn = sqlite3.connect(DB_FILE)
+c = conn.cursor()
+c.execute('''
+CREATE TABLE IF NOT EXISTS reservas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pc TEXT NOT NULL,
+    usuario TEXT NOT NULL,
+    fecha TEXT NOT NULL,
+    hora_inicio TEXT NOT NULL,
+    hora_fin TEXT NOT NULL
+)
+''')
+conn.commit()
+conn.close()
+
+# HTML de la app
+HTML = '''
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-    <title>ReservasPC</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
-        h1 { text-align: center; color: #333; }
-        .pc-container { display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; margin-bottom: 40px; }
-        .pc-card { background: white; padding: 20px; border-radius: 12px; width: 250px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-        .pc-name { font-size: 1.3em; font-weight: bold; margin-bottom: 10px; }
-        .status { font-weight: bold; padding: 5px 10px; border-radius: 5px; color: white; display: inline-block; margin-bottom: 10px; }
-        .status.libre { background: green; }
-        .status.ocupado { background: red; }
-        button { padding: 10px 15px; margin: 5px 0; width: 100%; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
-        button.reservar { background: #007bff; color: white; }
-        button.liberar { background: #dc3545; color: white; }
-        input { padding: 8px; width: 95%; margin: 5px 0; border-radius: 5px; border: 1px solid #ccc; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; }
-        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background: #007bff; color: white; }
-    </style>
+<meta charset="UTF-8">
+<title>Reservas PC</title>
+<style>
+body { font-family: Arial; background: #f7f7f7; padding: 20px; }
+h1 { color: #333; }
+input, select { padding: 5px; margin: 5px; }
+table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+th { background: #eee; }
+button { padding: 8px 12px; margin-top: 10px; background: #4CAF50; color: white; border: none; cursor: pointer; }
+button:hover { background: #45a049; }
+</style>
 </head>
 <body>
+<h1>Reservas de PCs</h1>
+<form method="POST">
+    <label>Nombre:</label>
+    <input type="text" name="usuario" required>
+    <label>PC:</label>
+    <select name="pc">
+        <option value="Jabalí">Jabalí</option>
+        <option value="Lince">Lince</option>
+    </select>
+    <label>Fecha:</label>
+    <input type="date" name="fecha" value="{{ hoy }}" required>
+    <label>Hora inicio:</label>
+    <input type="time" name="hora_inicio" required>
+    <label>Hora fin:</label>
+    <input type="time" name="hora_fin" required>
+    <button type="submit">Reservar</button>
+</form>
 
-<h1>ReservasPC</h1>
-
-<div class="pc-container">
-    <div class="pc-card" id="card-Jabalí">
-        <div class="pc-name">Jabalí</div>
-        <div>Status: <span class="status" id="status-Jabalí">Libre</span></div>
-        <input type="date" id="fecha-Jabalí" value="">
-        <input type="number" id="duracion-Jabalí" placeholder="Duración (minutos)">
-        <button class="reservar" onclick="reservar('Jabalí')">Reservar</button>
-        <button class="liberar" onclick="liberar('Jabalí')">Liberar</button>
-    </div>
-
-    <div class="pc-card" id="card-Lince">
-        <div class="pc-name">Lince</div>
-        <div>Status: <span class="status" id="status-Lince">Libre</span></div>
-        <input type="date" id="fecha-Lince" value="">
-        <input type="number" id="duracion-Lince" placeholder="Duración (minutos)">
-        <button class="reservar" onclick="reservar('Lince')">Reservar</button>
-        <button class="liberar" onclick="liberar('Lince')">Liberar</button>
-    </div>
-</div>
-
-<h2>Reservas activas</h2>
-<table id="tabla">
-    <thead>
-        <tr>
-            <th>Fecha</th>
-            <th>PC</th>
-            <th>Usuario</th>
-            <th>Fin</th>
-        </tr>
-    </thead>
-    <tbody id="tabla-body">
-    </tbody>
+<h2>Reservas Activas</h2>
+<table>
+    <tr>
+        <th>PC</th>
+        <th>Usuario</th>
+        <th>Fecha</th>
+        <th>Hora inicio</th>
+        <th>Hora fin</th>
+    </tr>
+    {% for r in reservas %}
+    <tr>
+        <td>{{ r[1] }}</td>
+        <td>{{ r[2] }}</td>
+        <td>{{ r[3] }}</td>
+        <td>{{ r[4] }}</td>
+        <td>{{ r[5] }}</td>
+    </tr>
+    {% endfor %}
 </table>
-
-<script>
-function todayDateInput(){
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById("fecha-Jabalí").value = today;
-    document.getElementById("fecha-Lince").value = today;
-}
-todayDateInput();
-
-function reservar(pc){
-    let usuario = prompt("Tu nombre:");
-    if(!usuario) return;
-    let dur = document.getElementById("duracion-"+pc).value;
-    if(!dur) { alert("Ingresa duración"); return; }
-    let fecha = document.getElementById("fecha-"+pc).value;
-
-    fetch('/reservar', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({pc:pc, usuario:usuario, dur:dur, fecha:fecha})
-    }).then(r=>r.json()).then(d=>{ alert(d.msg); cargar(); })
-}
-
-function liberar(pc){
-    let usuario = prompt("Tu nombre (para liberar):");
-    if(!usuario) return;
-
-    fetch('/liberar', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({pc:pc, usuario:usuario})
-    }).then(r=>r.json()).then(d=>{ alert(d.msg); cargar(); })
-}
-
-function cargar(){
-    fetch('/reservas').then(r=>r.json()).then(data=>{
-        // Actualiza tabla
-        let html="";
-        data.forEach(r=>{
-            html += `<tr><td>${r.fecha}</td><td>${r.pc}</td><td>${r.usuario}</td><td>${r.fin}</td></tr>`;
-        });
-        document.getElementById("tabla-body").innerHTML = html;
-
-        // Actualiza status de PCs
-        ['Jabalí','Lince'].forEach(pc=>{
-            let res = data.find(x=>x.pc===pc);
-            let statusEl = document.getElementById("status-"+pc);
-            if(res){
-                statusEl.textContent = "Ocupado";
-                statusEl.className = "status ocupado";
-            }else{
-                statusEl.textContent = "Libre";
-                statusEl.className = "status libre";
-            }
-        });
-    })
-}
-cargar();
-</script>
-
 </body>
 </html>
-"""
+'''
 
-# ---------------- DB -------------------
-def init_db():
-    conn = sqlite3.connect(DB)
+# Función para comprobar conflictos
+def hay_conflicto(pc, fecha, hora_inicio, hora_fin):
+    conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("""CREATE TABLE IF NOT EXISTS reservas(
-        pc TEXT,
-        usuario TEXT,
-        fecha TEXT,
-        inicio TEXT,
-        fin TEXT
-    )""")
-    conn.commit()
+    c.execute('''
+    SELECT * FROM reservas WHERE pc=? AND fecha=? AND NOT (hora_fin <= ? OR hora_inicio >= ?)
+    ''', (pc, fecha, hora_inicio, hora_fin))
+    conflicto = c.fetchone()
     conn.close()
+    return conflicto is not None
 
-init_db()
-
-def leer():
-    conn = sqlite3.connect(DB)
-    c = conn.cursor()
-    c.execute("SELECT pc, usuario, fecha, inicio, fin FROM reservas")
-    res = c.fetchall()
-    conn.close()
-    return res
-
-def escribir(pc, usuario, fecha, inicio, fin):
-    conn = sqlite3.connect(DB)
-    c = conn.cursor()
-    c.execute("DELETE FROM reservas WHERE pc=? AND fecha=?", (pc, fecha))
-    c.execute("INSERT INTO reservas VALUES(?,?,?,?,?)",
-              (pc, usuario, fecha, inicio, fin))
-    conn.commit()
-    conn.close()
-
-def borrar(pc, usuario):
-    conn = sqlite3.connect(DB)
-    c = conn.cursor()
-    c.execute("DELETE FROM reservas WHERE pc=? AND usuario=?", (pc, usuario))
-    conn.commit()
-    conn.close()
-
-# ---------------- RUTAS -------------------
-@app.route("/")
+@app.route("/", methods=["GET", "POST"])
 def index():
-    return render_template_string(HTML)
+    if request.method == "POST":
+        usuario = request.form["usuario"]
+        pc = request.form["pc"]
+        fecha = request.form["fecha"]
+        hora_inicio = request.form["hora_inicio"]
+        hora_fin = request.form["hora_fin"]
 
-@app.route("/reservas")
-def reservas():
-    data = leer()
-    lista = []
-    for pc, usuario, fecha, inicio, fin in data:
-        lista.append({
-            "pc": pc,
-            "usuario": usuario,
-            "fecha": fecha,
-            "inicio": inicio,
-            "fin": fin.split("T")[1][:5]  # HH:MM
-        })
-    return jsonify(lista)
+        # Validar conflictos
+        if hay_conflicto(pc, fecha, hora_inicio, hora_fin):
+            return "<h2>Error: El PC ya está reservado en ese horario.</h2><a href='/'>Volver</a>"
 
-@app.route("/reservar", methods=["POST"])
-def reservar():
-    d = request.json
-    pc = d["pc"]
-    usuario = d["usuario"]
-    dur = int(d["dur"])
-    fecha = d["fecha"]
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute('INSERT INTO reservas (pc, usuario, fecha, hora_inicio, hora_fin) VALUES (?, ?, ?, ?, ?)',
+                  (pc, usuario, fecha, hora_inicio, hora_fin))
+        conn.commit()
+        conn.close()
+        return redirect("/")
 
-    inicio = datetime.now()
-    fin = inicio + timedelta(minutes=dur)
-
-    escribir(pc, usuario, fecha, inicio.isoformat(), fin.isoformat())
-    return jsonify({"msg": f"{pc} reservado por {usuario} hasta las {fin.strftime('%H:%M')} del {fecha}"})
-
-
-@app.route("/liberar", methods=["POST"])
-def liberar():
-    d = request.json
-    pc = d["pc"]
-    usuario = d["usuario"]
-
-    borrar(pc, usuario)
-    return jsonify({"msg": f"{pc} liberado"})
+    # GET: mostrar reservas
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT * FROM reservas ORDER BY fecha, hora_inicio')
+    reservas = c.fetchall()
+    conn.close()
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    return render_template_string(HTML, reservas=reservas, hoy=hoy)
 
 if __name__ == "__main__":
-    app.run()
+    app.run(host="0.0.0.0", port=5000)
